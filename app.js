@@ -559,6 +559,7 @@ const ActionLog = (() => {
 // ==========================================
 const SmartAssistant = (() => {
     let alerts = [];
+    let activeFilter = 'all'; // 'all' | 'warn' | 'oos'
 
     function getAdvice(paramName) {
         const name = paramName.toLowerCase();
@@ -572,6 +573,7 @@ const SmartAssistant = (() => {
     }
 
     async function analyzeAndRender(sheet, samples, params) {
+        activeFilter = 'all';
         alerts = [];
         const paramBaselines = new Map();
         params.forEach(p => {
@@ -603,26 +605,34 @@ const SmartAssistant = (() => {
         return bands.map(b => `${Number.isFinite(b.min) ? b.min.toFixed(2) : '-∞'} ~ ${Number.isFinite(b.max) ? b.max.toFixed(2) : '∞'}`).join(' หรือ ');
     }
 
+    function emptyStateMessage() {
+        if (activeFilter === 'warn') return 'ไม่พบค่าเตือน (No Warning)';
+        if (activeFilter === 'oos') return 'ไม่พบค่าหลุดสเปค (No OOS)';
+        return 'ไม่พบค่าผิดปกติ (All Normal)';
+    }
+
     function updateUI() {
         const badge = document.getElementById('alert-badge');
         const count = alerts.length;
         if (count > 0) { badge.textContent = count > 99 ? '99+' : count; badge.classList.remove('hidden'); }
         else { badge.classList.add('hidden'); }
 
+        const visibleAlerts = activeFilter === 'all' ? alerts : alerts.filter(a => a.type === activeFilter);
+
         const container = document.getElementById('assistant-alerts');
-        if (count === 0) {
+        if (visibleAlerts.length === 0) {
             container.innerHTML = '';
             const wrap = document.createElement('div');
             wrap.className = 'flex flex-col items-center justify-center h-48 text-slate-400 dark:text-slate-500';
             wrap.innerHTML = `<i data-lucide="check-circle-2" class="w-12 h-12 mb-3 text-emerald-400 opacity-50"></i>
-                <p class="font-medium text-sm">ไม่พบค่าผิดปกติ (All Normal)</p>`;
+                <p class="font-medium text-sm">${emptyStateMessage()}</p>`;
             container.appendChild(wrap);
             lucide.createIcons();
             return;
         }
 
         container.innerHTML = '';
-        alerts.forEach((alert, idx) => {
+        visibleAlerts.forEach((alert, idx) => {
             const isOOS = alert.type === 'oos';
             const card = document.createElement('div');
             card.className = `rounded-xl border ${isOOS ? 'border-red-200 dark:border-red-800/50 bg-red-50 dark:bg-red-900/10' : 'border-amber-200 dark:border-amber-800/50 bg-amber-50 dark:bg-amber-900/10'} p-3.5 shadow-sm transition-all hover:shadow-md`;
@@ -694,8 +704,10 @@ const SmartAssistant = (() => {
         lucide.createIcons();
     }
 
-    function toggle(forceOpen = false) {
+    function toggle(forceOpen = false, filter = 'all') {
         const sidebar = document.getElementById('assistant-sidebar');
+        activeFilter = filter;
+        updateUI();
         if (forceOpen) sidebar.classList.add('sidebar-open');
         else sidebar.classList.toggle('sidebar-open');
     }

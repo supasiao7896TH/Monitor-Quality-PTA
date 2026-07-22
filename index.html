@@ -143,14 +143,14 @@
                     <h3 class="text-2xl font-bold text-slate-800 dark:text-white" id="sum-total">-</h3>
                 </div>
             </div>
-            <div class="glass-panel p-4 rounded-xl flex items-center gap-4 border-l-4 border-amber-500 cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors" onclick="SmartAssistant.toggle(true)">
+            <div class="glass-panel p-4 rounded-xl flex items-center gap-4 border-l-4 border-amber-500 cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors" onclick="SmartAssistant.toggle(true, 'warn')">
                 <div class="p-3 bg-amber-50 dark:bg-amber-500/20 rounded-full"><i data-lucide="alert-triangle" class="w-6 h-6 text-amber-500 dark:text-amber-400"></i></div>
                 <div>
                     <p class="text-sm text-slate-500 dark:text-slate-400">จุดที่พบค่าเตือน (Warning)</p>
                     <h3 class="text-2xl font-bold text-amber-600 dark:text-amber-400" id="sum-warn">-</h3>
                 </div>
             </div>
-            <div class="glass-panel p-4 rounded-xl flex items-center gap-4 border-l-4 border-red-500 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" onclick="SmartAssistant.toggle(true)">
+            <div class="glass-panel p-4 rounded-xl flex items-center gap-4 border-l-4 border-red-500 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" onclick="SmartAssistant.toggle(true, 'oos')">
                 <div class="p-3 bg-red-50 dark:bg-red-500/20 rounded-full"><i data-lucide="shield-alert" class="w-6 h-6 text-red-500 dark:text-red-400"></i></div>
                 <div>
                     <p class="text-sm text-slate-500 dark:text-slate-400">จุดที่หลุดสเปค (OOS)</p>
