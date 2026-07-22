@@ -1,0 +1,285 @@
+<!DOCTYPE html>
+<html lang="th" class="">
+<head>
+    <meta charset="UTF-8">
+    <meta name="viewport" content="width=device-width, initial-scale=1.0">
+    <title>PTA Quality Monitor</title>
+
+    <link rel="preconnect" href="https://fonts.googleapis.com">
+    <link rel="preconnect" href="https://fonts.gstatic.com" crossorigin>
+    <link href="https://fonts.googleapis.com/css2?family=Noto+Sans+Thai:wght@300;400;500;600;700&display=swap" rel="stylesheet">
+
+    <script src="https://cdn.tailwindcss.com"></script>
+    <script>
+        tailwind.config = {
+            darkMode: 'class',
+            theme: {
+                extend: {
+                    fontFamily: { sans: ['"Noto Sans Thai"', 'sans-serif'] },
+                    colors: {
+                        brand: {
+                            dark: '#0f172a', card: '#1e293b', primary: '#3b82f6',
+                            glow: '#60a5fa', spec: '#10b981', warn: '#f59e0b', danger: '#ef4444'
+                        }
+                    },
+                    animation: { 'pulse-fast': 'pulse 1.5s cubic-bezier(0.4, 0, 0.6, 1) infinite' }
+                }
+            }
+        }
+    </script>
+
+    <script src="https://cdn.sheetjs.com/xlsx-0.20.1/package/dist/xlsx.full.min.js"></script>
+    <script src="https://unpkg.com/lucide@latest"></script>
+    <script src="https://cdn.jsdelivr.net/npm/chart.js"></script>
+    <script src="https://cdnjs.cloudflare.com/ajax/libs/html2pdf.js/0.10.1/html2pdf.bundle.min.js"></script>
+
+    <style>
+        body {
+            background-color: #f1f5f9;
+            background-image: radial-gradient(circle at 50% 0%, #ffffff 0%, #f1f5f9 70%);
+            background-attachment: fixed;
+            color: #1e293b;
+            overflow-x: hidden;
+            transition: background-color 0.3s ease, color 0.3s ease;
+        }
+        .dark body {
+            background-color: #0f172a;
+            background-image: radial-gradient(circle at 50% 0%, #1e293b 0%, #0f172a 70%);
+            color: #f8fafc;
+        }
+        .glass-panel {
+            background: rgba(255, 255, 255, 0.85);
+            backdrop-filter: blur(12px); -webkit-backdrop-filter: blur(12px);
+            border: 1px solid rgba(203, 213, 225, 0.5);
+            box-shadow: 0 4px 20px rgba(0, 0, 0, 0.05);
+            transition: all 0.3s ease;
+        }
+        .dark .glass-panel {
+            background: rgba(30, 41, 59, 0.7);
+            border: 1px solid rgba(255, 255, 255, 0.08);
+            box-shadow: 0 4px 30px rgba(0, 0, 0, 0.1);
+        }
+        .dropzone-active { border-color: #3b82f6 !important; background: rgba(59, 130, 246, 0.05) !important; }
+        .dark .dropzone-active { background: rgba(59, 130, 246, 0.15) !important; }
+
+        ::-webkit-scrollbar { width: 8px; height: 8px; }
+        ::-webkit-scrollbar-track { background: rgba(203, 213, 225, 0.3); }
+        ::-webkit-scrollbar-thumb { background: rgba(148, 163, 184, 0.8); border-radius: 4px; }
+        .dark ::-webkit-scrollbar-track { background: rgba(15, 23, 42, 0.5); }
+        .dark ::-webkit-scrollbar-thumb { background: rgba(71, 85, 105, 0.8); }
+
+        .status-glow-idle { box-shadow: 0 0 10px 2px rgba(34, 197, 94, 0.3); background-color: #22c55e; }
+        .status-glow-processing { box-shadow: 0 0 15px 3px rgba(59, 130, 246, 0.4); background-color: #3b82f6; }
+        .status-glow-error { box-shadow: 0 0 10px 2px rgba(239, 68, 68, 0.4); background-color: #ef4444; }
+
+        .sticky-col-1 { position: sticky; left: 0; z-index: 20; background: inherit; }
+        .sticky-col-2 { position: sticky; left: 100px; z-index: 20; background: inherit; border-right: 1px solid rgba(0,0,0,0.05); }
+        .dark .sticky-col-2 { border-right: 1px solid rgba(255,255,255,0.1); }
+        thead th { position: sticky; top: 0; z-index: 30; }
+        thead tr:nth-child(2) th { top: 36px; z-index: 29; }
+        thead tr:nth-child(3) th { top: 72px; z-index: 28; border-bottom: 2px solid rgba(59, 130, 246, 0.3); }
+        thead tr:nth-child(4) th { top: 108px; z-index: 27; }
+        .sticky-corner-1 { position: sticky; left: 0; top: 0; z-index: 40; background: #f8fafc; }
+        .sticky-corner-2 { position: sticky; left: 100px; top: 0; z-index: 40; background: #f8fafc; border-right: 1px solid rgba(0,0,0,0.05); }
+        .dark .sticky-corner-1 { background: #1e293b; }
+        .dark .sticky-corner-2 { background: #1e293b; border-right: 1px solid rgba(255,255,255,0.1); }
+
+        .cell-oos { background-color: rgba(239, 68, 68, 0.1); border-left: 2px solid #ef4444; }
+        .cell-warn { background-color: rgba(245, 158, 11, 0.1); border-left: 2px solid #f59e0b; }
+        .dark .cell-oos { background-color: rgba(239, 68, 68, 0.2); }
+        .dark .cell-warn { background-color: rgba(245, 158, 11, 0.2); }
+
+        .clickable-header { cursor: pointer; transition: background 0.2s; }
+        .clickable-header:hover { background-color: rgba(59, 130, 246, 0.1); }
+        .dark .clickable-header:hover { background-color: rgba(59, 130, 246, 0.2); }
+
+        .sidebar-open { transform: translateX(0) !important; }
+        .tab-btn { transition: all 0.2s; }
+        .tab-btn.active { background: #3b82f6; color: white; }
+    </style>
+</head>
+<body class="min-h-screen flex flex-col font-sans antialiased">
+
+    <header class="glass-panel sticky top-0 z-50 w-full px-6 py-4 flex justify-between items-center flex-wrap gap-3" id="app-header">
+        <div class="flex items-center gap-3">
+            <div class="p-2 bg-blue-50 dark:bg-brand-primary/20 rounded-lg border border-blue-200 dark:border-brand-primary/30">
+                <i data-lucide="microscope" class="w-6 h-6 text-brand-primary"></i>
+            </div>
+            <div>
+                <h1 class="text-xl font-bold tracking-tight text-slate-800 dark:text-white">PTA Quality Monitor</h1>
+                <p class="text-xs text-brand-primary dark:text-brand-glow font-medium">Trend &amp; Action Playbook</p>
+            </div>
+        </div>
+        <div class="flex items-center gap-3">
+            <button onclick="toggleTheme()" class="p-2 mr-2 text-slate-500 hover:text-slate-800 bg-slate-100 hover:bg-slate-200 dark:text-slate-400 dark:hover:text-white dark:bg-slate-800 dark:hover:bg-slate-700 rounded-full transition-colors" title="สลับโหมดสว่าง/มืด">
+                <i data-lucide="moon" id="theme-icon" class="w-5 h-5"></i>
+            </button>
+            <div id="action-buttons" class="hidden flex gap-2">
+                <button onclick="SmartAssistant.toggle()" class="relative px-3 py-1.5 text-sm font-medium text-amber-600 bg-amber-50 hover:bg-amber-100 dark:text-amber-300 dark:bg-amber-900/30 dark:hover:bg-amber-900/50 rounded-lg transition-colors border border-amber-200 dark:border-amber-700/50 flex items-center gap-1.5 shadow-sm">
+                    <i data-lucide="bell-ring" class="w-4 h-4"></i> ผู้ช่วยเตือน
+                    <span id="alert-badge" class="absolute -top-1.5 -right-1.5 flex h-4 w-4 items-center justify-center rounded-full bg-red-500 text-[9px] font-bold text-white hidden ring-2 ring-white dark:ring-slate-900">0</span>
+                </button>
+                <button onclick="resetApp()" class="px-3 py-1.5 text-sm font-medium text-red-600 bg-white hover:bg-red-50 dark:text-red-300 dark:bg-slate-800 dark:hover:bg-red-900/30 rounded-lg transition-colors border border-slate-300 dark:border-slate-600 flex items-center gap-1.5 shadow-sm">
+                    <i data-lucide="trash-2" class="w-4 h-4"></i> ล้างประวัติทั้งหมด
+                </button>
+                <button onclick="ExportManager.downloadPDF()" class="px-3 py-1.5 text-sm font-medium text-white bg-slate-700 hover:bg-slate-800 dark:bg-slate-700 dark:hover:bg-slate-600 rounded-lg transition-colors border border-slate-600 flex items-center gap-1.5 shadow-sm">
+                    <i data-lucide="file-down" class="w-4 h-4"></i> Export PDF
+                </button>
+            </div>
+            <div class="flex items-center gap-2 px-3 py-1.5 rounded-full bg-white dark:bg-slate-800/50 border border-slate-200 dark:border-slate-700 shadow-sm ml-2">
+                <div id="header-status-dot" class="w-2.5 h-2.5 rounded-full status-glow-idle"></div>
+                <span id="header-status-text" class="text-xs font-medium text-slate-600 dark:text-slate-300">Ready</span>
+            </div>
+        </div>
+    </header>
+
+    <main class="flex-grow container mx-auto px-4 py-6 flex flex-col gap-6 w-full max-w-[98%]" id="print-area">
+
+        <div id="executive-summary" class="hidden grid grid-cols-1 md:grid-cols-3 gap-4 animate-fade-in">
+            <div class="glass-panel p-4 rounded-xl flex items-center gap-4 border-l-4 border-brand-primary">
+                <div class="p-3 bg-blue-50 dark:bg-brand-primary/20 rounded-full"><i data-lucide="activity" class="w-6 h-6 text-brand-primary dark:text-brand-glow"></i></div>
+                <div>
+                    <p class="text-sm text-slate-500 dark:text-slate-400">ตัวอย่างทั้งหมด (Sampling Point นี้)</p>
+                    <h3 class="text-2xl font-bold text-slate-800 dark:text-white" id="sum-total">-</h3>
+                </div>
+            </div>
+            <div class="glass-panel p-4 rounded-xl flex items-center gap-4 border-l-4 border-amber-500 cursor-pointer hover:bg-amber-50 dark:hover:bg-amber-900/20 transition-colors" onclick="SmartAssistant.toggle(true)">
+                <div class="p-3 bg-amber-50 dark:bg-amber-500/20 rounded-full"><i data-lucide="alert-triangle" class="w-6 h-6 text-amber-500 dark:text-amber-400"></i></div>
+                <div>
+                    <p class="text-sm text-slate-500 dark:text-slate-400">จุดที่พบค่าเตือน (Warning)</p>
+                    <h3 class="text-2xl font-bold text-amber-600 dark:text-amber-400" id="sum-warn">-</h3>
+                </div>
+            </div>
+            <div class="glass-panel p-4 rounded-xl flex items-center gap-4 border-l-4 border-red-500 cursor-pointer hover:bg-red-50 dark:hover:bg-red-900/20 transition-colors" onclick="SmartAssistant.toggle(true)">
+                <div class="p-3 bg-red-50 dark:bg-red-500/20 rounded-full"><i data-lucide="shield-alert" class="w-6 h-6 text-red-500 dark:text-red-400"></i></div>
+                <div>
+                    <p class="text-sm text-slate-500 dark:text-slate-400">จุดที่หลุดสเปค (OOS)</p>
+                    <h3 class="text-2xl font-bold text-red-600 dark:text-red-400" id="sum-oos">-</h3>
+                </div>
+            </div>
+        </div>
+
+        <section id="dropzone" class="glass-panel relative w-full rounded-2xl border-2 border-dashed border-slate-300 dark:border-slate-600 p-10 text-center cursor-pointer transition-all duration-300 hover:border-brand-primary/50 hover:bg-slate-50 dark:hover:bg-slate-800/30 group">
+            <input type="file" id="file-input" class="absolute inset-0 w-full h-full opacity-0 cursor-pointer z-10" accept=".xlsx, .xls, .csv" multiple>
+            <div class="flex flex-col items-center justify-center space-y-3 pointer-events-none">
+                <div class="p-4 bg-white dark:bg-slate-800 rounded-full group-hover:scale-110 transition-transform duration-300 shadow-md">
+                    <i data-lucide="file-up" class="w-10 h-10 text-brand-primary" id="dropzone-icon"></i>
+                </div>
+                <div>
+                    <h3 class="text-lg font-semibold text-slate-800 dark:text-slate-200" id="dropzone-text">ลากไฟล์ผล Lab (Excel) มาวางที่นี่ — เลือกได้หลายไฟล์</h3>
+                    <p class="text-sm text-slate-500 dark:text-slate-400 mt-1" id="dropzone-subtext">ระบบจะสแกนทุก Sheet และสะสมประวัติไว้ในเครื่องนี้ (IndexedDB)</p>
+                </div>
+            </div>
+        </section>
+
+        <div id="tabs-bar" class="hidden flex-wrap gap-2"></div>
+
+        <section id="data-section" class="hidden flex-col gap-4 animate-fade-in">
+            <div class="glass-panel rounded-xl overflow-hidden border border-slate-200 dark:border-slate-700 shadow-lg">
+                <div class="overflow-x-auto overflow-y-auto max-h-[600px]" id="table-scroll-area">
+                    <table class="w-full text-sm text-left text-slate-700 dark:text-slate-300 border-collapse" id="main-table">
+                        <thead id="table-head" class="text-xs uppercase bg-slate-100 dark:bg-slate-800 backdrop-blur-md"></thead>
+                        <tbody id="table-body" class="divide-y divide-slate-200 dark:divide-slate-700/50 bg-white dark:bg-slate-900/50"></tbody>
+                    </table>
+                </div>
+            </div>
+        </section>
+    </main>
+
+    <aside id="assistant-sidebar" class="fixed top-0 right-0 h-full w-[26rem] transform translate-x-full transition-transform duration-300 z-[60] shadow-2xl flex flex-col glass-panel border-l border-slate-200 dark:border-slate-700 bg-white/95 dark:bg-slate-900/95 backdrop-blur-xl">
+        <div class="flex justify-between items-center p-5 border-b border-slate-200 dark:border-slate-700 bg-slate-50 dark:bg-slate-800/50">
+            <h2 class="text-lg font-bold flex items-center gap-2 text-slate-800 dark:text-white">
+                <i data-lucide="bot" class="w-5 h-5 text-brand-primary"></i> Smart Assistant
+            </h2>
+            <button onclick="SmartAssistant.toggle()" class="text-slate-400 hover:text-slate-800 dark:hover:text-white p-1 rounded-md hover:bg-slate-200 dark:hover:bg-slate-700 transition-colors">
+                <i data-lucide="x" class="w-5 h-5"></i>
+            </button>
+        </div>
+        <div class="p-3 bg-slate-100 dark:bg-slate-800 border-b border-slate-200 dark:border-slate-700">
+            <p class="text-xs text-slate-500 dark:text-slate-400 font-medium px-2"><i data-lucide="info" class="w-3 h-3 inline pb-0.5"></i> ค่าผิดปกติล่าสุด พร้อมประวัติ Action ที่เคยทำ (เรียงจากล่าสุด)</p>
+        </div>
+        <div id="assistant-alerts" class="flex-1 overflow-y-auto p-4 flex flex-col gap-3">
+            <div class="flex flex-col items-center justify-center h-full text-slate-400 dark:text-slate-500">
+                <i data-lucide="check-circle-2" class="w-12 h-12 mb-2 text-emerald-400 opacity-50"></i>
+                <p>ไม่พบค่าผิดปกติ (All Normal)</p>
+            </div>
+        </div>
+    </aside>
+
+    <div id="chart-modal" class="hidden fixed inset-0 z-[100] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <div class="glass-panel w-full max-w-4xl rounded-2xl p-6 border border-slate-300 dark:border-slate-600 shadow-2xl flex flex-col bg-white dark:bg-slate-800">
+            <div class="flex justify-between items-center mb-4">
+                <div>
+                    <h2 class="text-xl font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                        <i data-lucide="line-chart" class="w-6 h-6 text-brand-primary"></i>
+                        Trend Analysis: <span id="chart-title" class="text-brand-primary dark:text-brand-glow">Parameter</span>
+                    </h2>
+                    <p class="text-xs text-slate-500 dark:text-slate-400 mt-1" id="chart-spec-info">Spec: -</p>
+                </div>
+                <button onclick="ChartManager.closeModal()" class="p-2 rounded-lg bg-slate-100 hover:bg-slate-200 dark:bg-slate-800 dark:hover:bg-slate-700 text-slate-600 dark:text-white transition-colors">
+                    <i data-lucide="x" class="w-5 h-5"></i>
+                </button>
+            </div>
+            <div class="relative w-full h-[400px]">
+                <canvas id="trendChart"></canvas>
+            </div>
+        </div>
+    </div>
+
+    <div id="action-modal" class="hidden fixed inset-0 z-[110] flex items-center justify-center bg-slate-900/60 backdrop-blur-sm p-4">
+        <div class="glass-panel w-full max-w-md rounded-2xl p-6 border border-slate-300 dark:border-slate-600 shadow-2xl bg-white dark:bg-slate-800">
+            <div class="flex justify-between items-center mb-4">
+                <h2 class="text-lg font-bold text-slate-800 dark:text-white flex items-center gap-2">
+                    <i data-lucide="wrench" class="w-5 h-5 text-brand-primary"></i> บันทึก Action
+                </h2>
+                <button onclick="ActionLogUI.close()" class="p-1 rounded-lg hover:bg-slate-200 dark:hover:bg-slate-700 text-slate-500 dark:text-white"><i data-lucide="x" class="w-5 h-5"></i></button>
+            </div>
+            <form id="action-form" class="flex flex-col gap-3 text-sm">
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">Parameter / สถานการณ์</label>
+                    <input type="text" id="action-param-display" disabled class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-slate-100 dark:bg-slate-700 text-slate-700 dark:text-slate-200">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">ตัวแปรควบคุมที่ปรับ</label>
+                    <input list="control-var-list" id="action-control-var" required class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200" placeholder="เช่น Rinse Ratio">
+                    <datalist id="control-var-list"></datalist>
+                </div>
+                <div class="grid grid-cols-2 gap-3">
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">ค่าเดิม</label>
+                        <input type="text" id="action-from-value" required class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200" placeholder="0.6">
+                    </div>
+                    <div>
+                        <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">ค่าใหม่</label>
+                        <input type="text" id="action-to-value" required class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200" placeholder="0.75">
+                    </div>
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">หน่วย (ถ้ามี)</label>
+                    <input type="text" id="action-unit" class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200" placeholder="ratio, °C, kg/hr ฯลฯ">
+                </div>
+                <div>
+                    <label class="block text-xs font-medium text-slate-500 dark:text-slate-400 mb-1">หมายเหตุเพิ่มเติม</label>
+                    <textarea id="action-note" rows="2" class="w-full px-3 py-2 rounded-lg border border-slate-300 dark:border-slate-600 bg-white dark:bg-slate-900 text-slate-800 dark:text-slate-200"></textarea>
+                </div>
+                <button type="submit" class="mt-2 px-4 py-2 bg-brand-primary hover:bg-blue-600 text-white font-medium rounded-lg transition-colors">บันทึก Action</button>
+            </form>
+        </div>
+    </div>
+
+    <div class="fixed bottom-6 right-6 z-50 group">
+        <div class="glass-panel px-5 py-2.5 rounded-2xl flex items-center gap-3 shadow-lg transition-all duration-300 hover:bg-white/80 dark:hover:bg-white/10 hover:scale-105 border border-slate-200 dark:border-white/10">
+            <div id="signature-status" class="w-2 h-2 rounded-full status-glow-idle transition-colors duration-300"></div>
+            <div class="flex flex-col">
+                <span class="text-sm tracking-[0.15em] font-light text-slate-700 dark:text-slate-200 uppercase" style="font-family: ui-sans-serif, system-ui, -apple-system, sans-serif;">
+                    Supasit<span class="text-brand-primary font-medium">.A</span>
+                </span>
+                <span class="text-[10px] text-slate-400 dark:text-slate-500 uppercase tracking-widest font-semibold">Architect</span>
+            </div>
+        </div>
+    </div>
+
+    <script src="./app.js"></script>
+    <script>document.addEventListener('DOMContentLoaded', () => { lucide.createIcons(); APP_CORE.init(); });</script>
+</body>
+</html>
