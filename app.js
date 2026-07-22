@@ -389,18 +389,23 @@ const ExcelParser = (() => {
 // MODULE: StatEngine — rolling baseline fallback for warn band
 // ==========================================
 const StatEngine = (() => {
-    function computeBaseline(samples, paramName) {
-        const values = samples
-            .map(s => s.values[paramName])
-            .filter(v => v && v.numeric !== null && v.pending === false)
-            .slice(-APP_CONFIG.BASELINE_WINDOW)
-            .map(v => v.numeric);
-
+    function computeBaselineFromValues(values) {
         if (values.length < 5) return null; // not enough history to be meaningful
         const mean = values.reduce((a, b) => a + b, 0) / values.length;
         const variance = values.reduce((a, b) => a + (b - mean) ** 2, 0) / values.length;
         const sd = Math.sqrt(variance);
         return { mean, sd, n: values.length };
+    }
+
+    // Excludes values already outside the spec, so a drifting/OOS run of samples
+    // can't widen its own warn band and get statistically relabeled as "normal".
+    function computeBaseline(samples, paramName, specBands) {
+        const values = samples
+            .map(s => s.values[paramName])
+            .filter(v => v && v.numeric !== null && v.pending === false && SpecEvaluator.isWithinBands(v.numeric, specBands))
+            .slice(-APP_CONFIG.BASELINE_WINDOW)
+            .map(v => v.numeric);
+        return computeBaselineFromValues(values);
     }
 
     function baselineBand(baseline) {
@@ -409,7 +414,24 @@ const StatEngine = (() => {
         return [{ min: baseline.mean - k * baseline.sd, max: baseline.mean + k * baseline.sd }];
     }
 
-    return { computeBaseline, baselineBand };
+    // One pass per parameter: keeps a bounded window of in-spec values and returns
+    // the "as of just before this sample" baseline for every index, so callers don't
+    // need to re-filter/re-reduce the whole history per row (that was O(n^2)).
+    function computeRollingBaselines(samples, paramName, specBands) {
+        const window = [];
+        const baselines = new Array(samples.length);
+        for (let i = 0; i < samples.length; i++) {
+            baselines[i] = computeBaselineFromValues(window);
+            const v = samples[i].values[paramName];
+            if (v && v.numeric !== null && v.pending === false && SpecEvaluator.isWithinBands(v.numeric, specBands)) {
+                window.push(v.numeric);
+                if (window.length > APP_CONFIG.BASELINE_WINDOW) window.shift();
+            }
+        }
+        return baselines;
+    }
+
+    return { computeBaseline, computeBaselineFromValues, computeRollingBaselines, baselineBand };
 })();
 
 // ==========================================
@@ -417,7 +439,9 @@ const StatEngine = (() => {
 // ==========================================
 const Evaluator = (() => {
     // Returns { status: 'normal'|'warn'|'oos', specBands, warnBands, warnSource: 'file'|'stat'|null }
-    function evaluate(param, valueObj, historySamples) {
+    // `baseline` is a precomputed StatEngine baseline (mean/sd) for this param as of
+    // just before this sample — see StatEngine.computeRollingBaselines.
+    function evaluate(param, valueObj, baseline) {
         if (!valueObj || valueObj.numeric === null) {
             return { status: valueObj && valueObj.pending ? 'pending' : 'na', specBands: null, warnBands: null, warnSource: null };
         }
@@ -427,7 +451,6 @@ const Evaluator = (() => {
         let warnSource = warnBands ? 'file' : null;
 
         if (!warnBands) {
-            const baseline = StatEngine.computeBaseline(historySamples, param.name);
             warnBands = StatEngine.baselineBand(baseline);
             if (warnBands) warnSource = 'stat';
         }
@@ -550,11 +573,16 @@ const SmartAssistant = (() => {
 
     async function analyzeAndRender(sheet, samples, params) {
         alerts = [];
+        const paramBaselines = new Map();
+        params.forEach(p => {
+            const specBands = SpecEvaluator.parseBands(p.specText);
+            paramBaselines.set(p.name, StatEngine.computeRollingBaselines(samples, p.name, specBands));
+        });
         for (let i = samples.length - 1; i >= 0; i--) {
             const row = samples[i];
             for (const p of params) {
                 const valObj = row.values[p.name];
-                const evalResult = Evaluator.evaluate(p, valObj, samples.slice(0, i));
+                const evalResult = Evaluator.evaluate(p, valObj, paramBaselines.get(p.name)[i]);
                 if (evalResult.status === 'oos' || evalResult.status === 'warn') {
                     const bucket = ActionLog.deviationBucket(valObj.numeric, evalResult.specBands);
                     const similar = await ActionLog.findSimilarActions(sheet, p.name, bucket);
@@ -790,6 +818,13 @@ const UIRenderer = (() => {
         const thead = document.getElementById('table-head');
         const tbody = document.getElementById('table-body');
 
+        // Precompute once per parameter (was recomputed from scratch per cell, O(n^2)).
+        const paramBaselines = new Map();
+        currentParams.forEach(p => {
+            const specBands = SpecEvaluator.parseBands(p.specText);
+            paramBaselines.set(p.name, StatEngine.computeRollingBaselines(currentSamples, p.name, specBands));
+        });
+
         let thName = `<tr class="text-slate-600 dark:text-slate-200">
             <th class="sticky-corner-1 px-4 py-3 min-w-[100px]">เวลา (Time)</th>
             <th class="sticky-corner-2 px-4 py-3 min-w-[120px]">สถานะ (Status)</th>`;
@@ -828,7 +863,7 @@ const UIRenderer = (() => {
 
             currentParams.forEach(p => {
                 const v = row.values[p.name] || { mainRaw: '-', numeric: null, pending: false };
-                const evalResult = Evaluator.evaluate(p, v, currentSamples.slice(0, idx));
+                const evalResult = Evaluator.evaluate(p, v, paramBaselines.get(p.name)[idx]);
                 if (evalResult.status === 'oos') stats.oos++;
                 if (evalResult.status === 'warn') stats.warn++;
 
@@ -868,7 +903,8 @@ const UIRenderer = (() => {
 
     function evaluateForBaseline(param) {
         if (param.warnText) return null;
-        const baseline = StatEngine.computeBaseline(currentSamples, param.name);
+        const specBands = SpecEvaluator.parseBands(param.specText);
+        const baseline = StatEngine.computeBaseline(currentSamples, param.name, specBands);
         const band = StatEngine.baselineBand(baseline);
         return band ? band[0] : null;
     }
@@ -929,10 +965,11 @@ const ChartManager = (() => {
             return (v && v.numeric !== null) ? v.numeric : null;
         });
 
-        const specBands = SpecEvaluator.parseBands(param.specText) || [];
+        const specBandsRaw = SpecEvaluator.parseBands(param.specText);
+        const specBands = specBandsRaw || [];
         let warnBands = SpecEvaluator.parseBands(param.warnText);
         if (!warnBands) {
-            const baseline = StatEngine.computeBaseline(samples, paramName);
+            const baseline = StatEngine.computeBaseline(samples, paramName, specBandsRaw);
             warnBands = StatEngine.baselineBand(baseline) || [];
         }
 
