@@ -6,7 +6,13 @@
 
 **https://monitor-quality-pta.supasiao.workers.dev**
 
-deploy อัตโนมัติทุกครั้งที่ push เข้า `main` (ผ่าน GitHub Actions → Cloudflare Workers) เอา URL นี้ไปแปะเป็น Hyperlink ในไฟล์ Excel ได้เลย
+deploy อัตโนมัติทุกครั้งที่ push เข้า `main` (ผ่าน GitHub Actions → Cloudflare Workers)
+
+แปะเป็นลิงก์ในไฟล์ Excel ได้ด้วยสูตรนี้:
+
+```
+=HYPERLINK("https://monitor-quality-pta.supasiao.workers.dev/", "@Open PTA Quality Monitor")
+```
 
 ## Tech Stack
 
