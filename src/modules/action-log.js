@@ -90,10 +90,12 @@ export const ActionLog = (() => {
     }
 
     // Pull every number out of a free-text SOP step string (e.g. "0.002-0.005 g/cm3"),
-    // ignoring "-" / blank entries that mean "no documented step".
+    // ignoring "-" / blank entries that mean "no documented step". The lookbehind/
+    // lookahead exclude digits glued directly onto letters (the "3" in "g/cm3", the
+    // "2" in "kg/cm2", the "1" in ">1Hr") so unit suffixes don't get parsed as data.
     function parseSopNumbers(text) {
         if (!text || text === '-') return [];
-        const matches = String(text).match(/-?\d+(\.\d+)?/g);
+        const matches = String(text).match(/(?<![a-zA-Z])-?\d+(\.\d+)?(?![a-zA-Z])/g);
         return matches ? matches.map(Number) : [];
     }
 
