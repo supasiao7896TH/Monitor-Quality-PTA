@@ -93,7 +93,9 @@
 
 ## 3. Correlation Matrix (Factor × Item Severity)
 
-ตารางต้นฉบับ (ทั้งใน .xls และ .pdf) มีกริดสัญลักษณ์ ◎/○/▷ (3 ระดับ) เชื่อมโยงว่าแต่ละ Factor ในตารางที่ 2 ส่งผลกระทบต่อ Item คุณภาพในตารางที่ 1 มากน้อยเพียงใด (เดิมภาพ PDF มี **●** ปรากฏในแถว BFM ด้วย แต่ยืนยันแล้วว่าเป็นแค่ไฮไลต์สีทึบของแถว ไม่ใช่สัญลักษณ์ระดับที่ 4 — พี่ A เอาไฮไลต์นี้ออกจากไฟล์ Excel แล้ว)
+กริดสัญลักษณ์ ◎/○/▷ เชื่อมโยงว่าแต่ละ Factor (ตารางที่ 2) ส่งผลกระทบต่อ Item คุณภาพ (ตารางที่ 1) มากน้อยเพียงใด — **ดึงข้อมูลได้ครบแล้ว** จากไฟล์ `PTA Quality Characteristics Rev.14.xls` เวอร์ชันล่าสุดที่พี่ A ส่งมา (2026-08-10) ซึ่งพี่ A จัดเป็นชีตกริดล้วนๆ แยกต่างหาก (Factor เป็นแถว, Item เป็นคอลัมน์)
+
+**วิธีอ่าน**: `xlrd` อ่าน cell values ไม่ได้เหมือนเดิม (สัญลักษณ์ยังเป็นรูปวาด/shape ไม่ใช่ text) จึงใช้ Excel COM automation (PowerShell) เปิดไฟล์แล้ว export ชีตเป็น PDF แบบ vector (ไม่ใช่ scan) แล้วอ่านด้วยตาจาก PDF นั้นแทน — ความคมชัดสูงกว่าภาพสแกนต้นฉบับมาก ทำให้อ่านตำแหน่งจับคู่รายเซลล์ได้แม่นยำ
 
 **ความหมายสัญลักษณ์ (ยืนยันโดยพี่ A แล้ว)**:
 
@@ -101,20 +103,51 @@
 - ○ วงกลมชั้นเดียว = **Medium effect** — ปรับ factor แล้ว item เปลี่ยนแปลงปานกลาง
 - ◎ วงกลม 2 ชั้น = **High effect** — ปรับ factor แล้ว item เปลี่ยนแปลงมาก
 
-ตัวอย่างจากพี่ A: ปรับลด **Slurry density** (factor) → **4-CBA** (item) เปลี่ยนแปลง**น้อย** → cell ที่จับคู่ Slurry density × 4CBA ควรเป็น ▷
+ตัวอย่างจากพี่ A: ปรับลด **Slurry density** (factor) → **4-CBA** (item) เปลี่ยนแปลง**น้อย** → cell จับคู่ Slurry density × 4CBA = ▷ — **ตรงกับที่อ่านได้จากกริดจริง** ใช้เป็นจุดตรวจสอบความถูกต้องของการอ่านทั้งตารางนี้แล้ว
 
-**สิ่งที่ยังดึงเป็นข้อมูลไม่ได้**: ตำแหน่งจับคู่จริงราย cell (Factor ตัวไหน × Item ตัวไหน = สัญลักษณ์อะไร) เพราะ:
+⚠️ หมายเหตุ: กริดเวอร์ชันนี้มี 12 Item (ไม่มี **THM** เทียบกับตารางที่ 1 ซึ่งมี 13 Item) — อาจเป็นเพราะ THM ไม่ได้อยู่ในขอบเขตการวิเคราะห์ correlation นี้ หรือคอลัมน์ตกหล่นตอนสร้างชีตใหม่ ควรตรวจสอบกับพี่ A หากต้องใช้ THM ในฟีเจอร์ auto-suggest
 
-- ไฟล์ `.xls`: cell values ของคอลัมน์ Severity ทั้งหมดว่างเปล่า (สัญลักษณ์เป็นรูปวาด/shape ไม่ใช่ text)
-- ไฟล์ `.pdf`: เป็นภาพสแกนหมุน 90° สัญลักษณ์เล็กมาก อ่านตำแหน่งจับคู่รายเซลล์แม่นยำไม่ได้
+### กริดเต็ม (21 Factor × 12 Item)
 
-**แนะนำ**: หากต้องใช้ correlation matrix นี้จริงจัง (เช่น ทำฟีเจอร์ auto-suggest ว่า factor ไหนกระทบ item ไหนใน Monitor-Quality-PTA) ให้เปิดไฟล์ `PTA Quality Characteristics Rev.14.xls` ด้วย Excel โดยตรงแล้วอ่านค่ากริดด้วยตา (ตอนนี้รู้ความหมายสัญลักษณ์แล้ว เหลือแค่ต้องกรอกตำแหน่งจับคู่ราย cell) หรือขอให้ผู้ดูแลเอกสารส่งเวอร์ชันที่กรอกสัญลักษณ์เป็นตัวอักษร/ตัวเลขในเซลล์แทนรูปวาด
+| Factor | APS | P-TA | b-value | T-400 | T-340 | 4CBA | Moisture | Co | Ash | BFM | Fe | Apperance |
+| --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- | --- |
+| CTA T-340 | | | | ◎ | ◎ | | | | | | | |
+| CTA 4-CBA | | | ◎ | | | ○ | | | | | | |
+| Reprocess from TTK-401 | | | ○ | ◎ | ◎ | ○ | | | | | | |
+| CTA feed rate | ○ | ○ | ○ | ○ | ◎ | ◎ | ○ | | | ○ | | |
+| Slurry density | ▷ | ▷ | ▷ | | ▷ | ▷ | | | | ○ | | |
+| Hot oil flow rate | | | | | | | | | | ○ | | |
+| H2 purity | | | | ▷ | ▷ | ▷ | | | | | | |
+| Reactor pressure | ◎ | | ▷ | ◎ | ▷ | ▷ | ◎ | | | | ○ | |
+| PCV-2201.MV | ◎ | ◎ | | | | | | | | | | |
+| Pressure of PD-301 | ◎ | ◎ | | ▷ | ▷ | | | | | | | |
+| Level of PD-301 | ◎ | ◎ | ▷ | ▷ | ▷ | | | | | | | |
+| Temperature of reslurry water | | | | ▷ | ▷ | | | | | | | |
+| Reslurry water to PM-401 | | ○ | | ▷ | ▷ | | | | | | | |
+| LPW to suction PP-304 | | ◎ | | | | | | | | | | |
+| RPF Torque | | | | | | | | | ◎ | | | ◎ |
+| CoAc flow rate | | | | | | | | ◎ | | | | |
+| Rinse Ratio RPF | | ◎ | | | | | | | | | | |
+| Recycle water | | ○ | | | | | | | | | | |
+| Dryout Temperature | | | | | | ◎ | | | | | | ○ |
+| Dryer steam pressure | | | | | | ◎ | | | | | | ○ |
+| Vibration screen | | | | | | | | | | | | ◎ |
+
+หมายเหตุ: ช่องว่าง = ไม่มีความสัมพันธ์ที่ระบุไว้ในกริดต้นฉบับ (ไม่ใช่ "ไม่ทราบ")
+
+**สังเกตที่น่าสนใจ**:
+
+- **P-TA** เป็น item ที่ถูก factor กระทบเยอะที่สุด (10 factor) โดยเฉพาะกลุ่ม Reactor/Crystallization (PCV-2201.MV, Pressure/Level of PD-301, LPW to suction PP-304 = ◎ ทั้งหมด)
+- **4-CBA** สัมพันธ์กับ factor ในกลุ่ม Feed/Reactor เป็นหลัก (CTA T-340, CTA 4-CBA, Reprocess, CTA feed rate = ◎/○) สอดคล้องกับที่อธิบายไว้ก่อนหน้าว่า 4-CBA ถูกกำหนดโดยประสิทธิภาพปฏิกิริยา oxidation ใน Reactor
+- **Apperance** สัมพันธ์กับกลุ่ม Drying/Silo ท้ายกระบวนการเป็นหลัก (RPF Torque, Dryout/Dryer steam pressure, Vibration screen) ตรงกับ physical/visual defect ที่มักเกิดช่วงปลายกระบวนการ
+- Item ที่ไม่มี factor จับคู่เลยในกริดนี้: **Moisture** (มีแค่ CTA feed rate=○, Reactor pressure=◎), **Co** (มีแค่ CoAc flow rate=◎), **Ash** (มีแค่ RPF Torque=◎), **Fe** (มีแค่ Reactor pressure=○) — แต่ละตัวมีแค่ 1 factor ที่จับคู่ไว้ อาจหมายถึงยังไม่ได้วิเคราะห์ครบ หรือจริงๆ มีปัจจัยกระทบน้อยจริง
 
 ---
 
 ## Source
 
-- ไฟล์ต้นฉบับหลัก: `PTA Quality Characteristics Rev.14.xls` (sheet `PTA`, 48 rows × 30 cols)
-- ไฟล์อ้างอิงรอง: `PTA Quality control.pdf` (สแกนภาพของตารางเดียวกัน — ใช้ยืนยัน layout เท่านั้น)
-- วิธีแปลง: อ่านค่า cell ด้วย Python `xlrd` โดยตรง (ไม่ผ่าน OCR) แปลงเป็น Markdown เมื่อ 2026-08-10
+- ไฟล์ต้นฉบับ §1-2: `PTA Quality Characteristics Rev.14.xls` เวอร์ชันแรก (sheet `PTA`, 48 rows × 30 cols) — อ่านด้วย Python `xlrd` โดยตรง
+- ไฟล์ต้นฉบับ §3: `PTA Quality Characteristics Rev.14.xls` เวอร์ชันอัปเดต (2026-08-10, sheet `PTA`, 45 rows × 14 cols — พี่ A ปรับเป็นชีตกริด correlation ล้วนๆ แทนตารางเดิม) — `xlrd` อ่าน text ไม่ได้เหมือนเดิม จึงใช้ Excel COM automation export เป็น PDF (vector) แล้วอ่านด้วยตาแทน
+- ไฟล์อ้างอิงรอง: `PTA Quality control.pdf` (สแกนภาพของตารางเวอร์ชันแรก — ใช้ยืนยัน layout เท่านั้น)
+- แปลงเป็น Markdown ครั้งแรก: 2026-08-10, อัปเดต §3 (Correlation Matrix เต็ม): 2026-08-10
 - ข้อจำกัดที่เหลืออยู่: กริด Severity/Correlation Matrix (ส่วนที่ 3) — ความหมายสัญลักษณ์ ▷/○/◎ ยืนยันแล้ว แต่ตำแหน่งจับคู่รายเซลล์ (Factor × Item) ยังดึงจากไฟล์ไม่ได้ ต้องตรวจสอบด้วยตาจากไฟล์ต้นฉบับ
