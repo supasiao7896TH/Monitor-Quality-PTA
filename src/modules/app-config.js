@@ -5,6 +5,8 @@ export const APP_CONFIG = (() => {
     const DEFAULT_SHEET = '2PZ-402';
     const BASELINE_WINDOW = 30; // rolling window size for statistical fallback
     const BASELINE_K = 2; // mean +/- k*SD
+    const ACTION_RECENCY_HALFLIFE_DAYS = 180; // getEffectStats: a past action's weight halves every this many days
+    const ALERT_SIDEBAR_WINDOW_DAYS = 14; // SmartAssistant: only surface episodes from the last this many days
     // Real process control factors from PTA-Quality-Control.md §2 (source: PTA Quality
     // Characteristics Rev.14.xls). fineTune/fastTune are the SOP's documented step sizes
     // for normal vs. emergency adjustment — used to sanity-check calculated effect stats.
@@ -36,5 +38,5 @@ export const APP_CONFIG = (() => {
         PROCESSING: { text: 'Processing...', class: 'status-glow-processing animate-pulse-fast' },
         ERROR: { text: 'Error', class: 'status-glow-error' }
     };
-    return { DB_NAME, DB_VERSION, DEFAULT_SHEET, BASELINE_WINDOW, BASELINE_K, CONTROL_VARIABLES, STATUS };
+    return { DB_NAME, DB_VERSION, DEFAULT_SHEET, BASELINE_WINDOW, BASELINE_K, ACTION_RECENCY_HALFLIFE_DAYS, ALERT_SIDEBAR_WINDOW_DAYS, CONTROL_VARIABLES, STATUS };
 })();

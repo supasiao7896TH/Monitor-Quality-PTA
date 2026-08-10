@@ -6,7 +6,9 @@ import { describe, it, expect, vi, beforeEach } from 'vitest';
 vi.mock('../src/modules/storage-engine.js', () => ({
     STORAGE_ENGINE: {
         getActionsBySheetParam: vi.fn(),
-        updateAction: vi.fn()
+        updateAction: vi.fn(),
+        getAllActions: vi.fn(),
+        addAction: vi.fn()
     }
 }));
 
@@ -150,6 +152,22 @@ describe('ActionLog.getEffectStats', () => {
         expect(stats.unit).toBe('g/cm3');
     });
 
+    it('weights recent actions more heavily than old ones (APP_CONFIG.ACTION_RECENCY_HALFLIFE_DAYS)', async () => {
+        const DAY_MS = 24 * 60 * 60 * 1000;
+        STORAGE_ENGINE.getActionsBySheetParam.mockResolvedValue([
+            successAction({ createdAt: Date.now() - 400 * DAY_MS, triggerValue: 4650, resultValue: 4600 }), // old, Δparam -50
+            successAction({ createdAt: Date.now() - 400 * DAY_MS, triggerValue: 4650, resultValue: 4600 }), // old, Δparam -50
+            successAction({ createdAt: Date.now(), triggerValue: 5100, resultValue: 4600 })                 // recent, Δparam -500
+        ]);
+
+        const stats = await ActionLog.getEffectStats('Sheet1', '4-CBA', 'high-moderate', 'Slurry density');
+
+        // Unweighted average would be exactly -200; the recent, heavily-weighted
+        // -500 action should pull the weighted average well past that.
+        expect(stats.avgDeltaParam).toBeLessThan(-200);
+        expect(stats.avgDeltaParam).toBeGreaterThan(-500);
+    });
+
     it('flags a calculated average that is wildly outside the SOP\'s documented Fine/Fast tune step', async () => {
         // Slurry density SOP step is 0.001 (fine) ~ 0.002-0.005 (fast) g/cm3 (app-config.js) —
         // an average delta of 1.0 is >3x the fast-tune max, so it should be flagged, not trusted blindly.
@@ -174,5 +192,44 @@ describe('ActionLog.getEffectStats', () => {
         const stats = await ActionLog.getEffectStats('Sheet1', '4-CBA', 'high-moderate', 'Unknown Valve');
 
         expect(stats.sopFlag).toBeNull();
+    });
+});
+
+describe('ActionLog.exportBackup / importBackup', () => {
+    beforeEach(() => {
+        STORAGE_ENGINE.getAllActions.mockReset();
+        STORAGE_ENGINE.addAction.mockReset();
+    });
+
+    it('wraps every stored action in a typed, versioned payload', async () => {
+        const actions = [{ id: 1, sheet: 'Sheet1', paramName: 'X' }];
+        STORAGE_ENGINE.getAllActions.mockResolvedValue(actions);
+
+        const payload = await ActionLog.exportBackup();
+
+        expect(payload.type).toBe('pta-quality-monitor-action-history');
+        expect(payload.actions).toEqual(actions);
+        expect(typeof payload.exportedAt).toBe('string');
+    });
+
+    it('imports every action from a valid backup, stripping the old id so the store assigns fresh keys', async () => {
+        STORAGE_ENGINE.addAction.mockResolvedValue(undefined);
+        const payload = {
+            type: 'pta-quality-monitor-action-history', version: 1, exportedAt: '2026-01-01T00:00:00.000Z',
+            actions: [{ id: 5, sheet: 'Sheet1', paramName: 'X' }, { id: 6, sheet: 'Sheet1', paramName: 'Y' }]
+        };
+
+        const count = await ActionLog.importBackup(payload);
+
+        expect(count).toBe(2);
+        expect(STORAGE_ENGINE.addAction).toHaveBeenCalledTimes(2);
+        expect(STORAGE_ENGINE.addAction).toHaveBeenCalledWith({ sheet: 'Sheet1', paramName: 'X' });
+        expect(STORAGE_ENGINE.addAction).toHaveBeenCalledWith({ sheet: 'Sheet1', paramName: 'Y' });
+    });
+
+    it('rejects a file that is not this app\'s action-history backup format', async () => {
+        await expect(ActionLog.importBackup({ type: 'something-else', actions: [] })).rejects.toThrow();
+        await expect(ActionLog.importBackup({ type: 'pta-quality-monitor-action-history', actions: 'not-an-array' })).rejects.toThrow();
+        expect(STORAGE_ENGINE.addAction).not.toHaveBeenCalled();
     });
 });

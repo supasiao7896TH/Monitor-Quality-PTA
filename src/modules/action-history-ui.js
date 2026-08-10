@@ -2,6 +2,7 @@
 import { STORAGE_ENGINE } from './storage-engine.js';
 import { APP_CONFIG } from './app-config.js';
 import { SpecEvaluator } from './spec-evaluator.js';
+import { ActionLog } from './action-log.js';
 
 /** Before/after audit view across all logged actions, filterable by sheet and outcome. */
 export const ActionHistoryUI = (() => {
@@ -26,6 +27,38 @@ export const ActionHistoryUI = (() => {
 
     function close() {
         document.getElementById('action-history-modal').classList.add('hidden');
+    }
+
+    // Downloads every logged action as a JSON backup file — the only way to get
+    // this browser's action history out, since it lives solely in local IndexedDB.
+    async function exportHistory() {
+        const payload = await ActionLog.exportBackup();
+        const blob = new Blob([JSON.stringify(payload, null, 2)], { type: 'application/json' });
+        const url = URL.createObjectURL(blob);
+        const a = document.createElement('a');
+        a.href = url;
+        a.download = `pta-action-history-${new Date().toISOString().slice(0, 10)}.json`;
+        document.body.appendChild(a);
+        a.click();
+        a.remove();
+        URL.revokeObjectURL(url);
+    }
+
+    function triggerImport() {
+        document.getElementById('action-history-import-input').click();
+    }
+
+    async function handleImportFile(file) {
+        if (!file) return;
+        if (!confirm(`นำเข้าประวัติ Action จากไฟล์ "${file.name}"?\n\nรายการทั้งหมดในไฟล์จะถูกเพิ่มต่อท้ายประวัติปัจจุบัน (ไม่ลบของเดิม ไม่ตรวจสอบรายการซ้ำ)`)) return;
+        try {
+            const payload = JSON.parse(await file.text());
+            const count = await ActionLog.importBackup(payload);
+            alert(`นำเข้าสำเร็จ ${count} รายการ`);
+            await open();
+        } catch (err) {
+            alert(`นำเข้าไม่สำเร็จ: ${err.message}`);
+        }
     }
 
     function onSheetFilterChange(value) {
@@ -221,5 +254,5 @@ export const ActionHistoryUI = (() => {
         return card;
     }
 
-    return { open, close, onSheetFilterChange, onOutcomeFilterChange };
+    return { open, close, onSheetFilterChange, onOutcomeFilterChange, exportHistory, triggerImport, handleImportFile };
 })();

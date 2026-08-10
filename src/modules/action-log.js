@@ -123,10 +123,24 @@ export const ActionLog = (() => {
         return 'within-sop-range';
     }
 
+    // Exponential recency weight: 1.0 for an action logged right now, halving every
+    // APP_CONFIG.ACTION_RECENCY_HALFLIFE_DAYS days, so getEffectStats reflects the
+    // process's *current* behavior more than very old actions (which may predate a
+    // catalyst change, overhaul, or SOP revision). Actions without a createdAt
+    // (only possible in old test fixtures, never in real logged data) get weight 1.
+    function recencyWeight(createdAt) {
+        if (!Number.isFinite(createdAt)) return 1;
+        const halfLifeMs = APP_CONFIG.ACTION_RECENCY_HALFLIFE_DAYS * 24 * 60 * 60 * 1000;
+        const ageMs = Math.max(0, Date.now() - createdAt);
+        return Math.pow(0.5, ageMs / halfLifeMs);
+    }
+
     // Data-driven effect size: from past *successful* actions matching this
     // sheet/param/bucket/controlVariable, how much did the control variable typically
     // move, and how much did the parameter typically move in response? Returns null
-    // (never a guess) when fewer than 3 usable data points exist.
+    // (never a guess) when fewer than 3 usable data points exist. Recent actions carry
+    // more weight than old ones (see recencyWeight) — n stays a plain count so the
+    // advice text's "จากประวัติ N ครั้ง" still means what it says.
     async function getEffectStats(sheet, paramName, bucket, controlVariable) {
         const all = await STORAGE_ENGINE.getActionsBySheetParam(sheetParamKey(sheet, paramName));
         const usable = all.filter(a =>
@@ -139,11 +153,15 @@ export const ActionLog = (() => {
         );
         if (usable.length < 3) return null;
 
-        const deltaParams = usable.map(a => a.resultValue - a.triggerValue);
-        const deltaControls = usable.map(a => parseFloat(a.toValue) - parseFloat(a.fromValue));
-        const avg = (arr) => arr.reduce((sum, v) => sum + v, 0) / arr.length;
-        const avgDeltaParam = avg(deltaParams);
-        const avgDeltaControl = avg(deltaControls);
+        const weighted = usable.map(a => ({
+            weight: recencyWeight(a.createdAt),
+            deltaParam: a.resultValue - a.triggerValue,
+            deltaControl: parseFloat(a.toValue) - parseFloat(a.fromValue)
+        }));
+        const totalWeight = weighted.reduce((sum, w) => sum + w.weight, 0);
+        const weightedAvg = (key) => weighted.reduce((sum, w) => sum + w[key] * w.weight, 0) / totalWeight;
+        const avgDeltaParam = weightedAvg('deltaParam');
+        const avgDeltaControl = weightedAvg('deltaControl');
 
         return {
             n: usable.length,
@@ -154,5 +172,32 @@ export const ActionLog = (() => {
         };
     }
 
-    return { deviationBucket, logAction, findSimilarActions, checkOutcomes, getEffectStats };
+    const BACKUP_TYPE = 'pta-quality-monitor-action-history';
+    const BACKUP_VERSION = 1;
+
+    // Wraps every logged action into a portable JSON payload (see ActionHistoryUI
+    // for the actual file download) — a manual backup, since actions live only in
+    // this browser's IndexedDB with no cloud sync.
+    async function exportBackup() {
+        const actions = await STORAGE_ENGINE.getAllActions();
+        return { type: BACKUP_TYPE, version: BACKUP_VERSION, exportedAt: new Date().toISOString(), actions };
+    }
+
+    // Appends every record from a previously-exported backup into this browser's
+    // IndexedDB. Never replaces or dedupes — the same operator often has independent
+    // history on two machines (home/work) that should both be kept, not overwritten.
+    // Strips each record's `id` so the local autoIncrement store assigns fresh keys
+    // instead of colliding with (or silently overwriting) whatever's already here.
+    async function importBackup(payload) {
+        if (!payload || payload.type !== BACKUP_TYPE || !Array.isArray(payload.actions)) {
+            throw new Error('ไฟล์นี้ไม่ใช่ไฟล์สำรองประวัติ Action ของแอปนี้');
+        }
+        for (const record of payload.actions) {
+            const { id, ...rest } = record;
+            await STORAGE_ENGINE.addAction(rest);
+        }
+        return payload.actions.length;
+    }
+
+    return { deviationBucket, logAction, findSimilarActions, checkOutcomes, getEffectStats, exportBackup, importBackup };
 })();

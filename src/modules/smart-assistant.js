@@ -5,6 +5,7 @@ import { Evaluator } from './evaluator.js';
 import { ActionLog } from './action-log.js';
 import { ActionLogUI } from './action-log-ui.js';
 import { CorrelationMatrix } from './correlation-matrix.js';
+import { APP_CONFIG } from './app-config.js';
 
 /** Alert sidebar: builds warn/OOS cards with advice + past-action history, per current sheet. */
 export const SmartAssistant = (() => {
@@ -78,32 +79,82 @@ export const SmartAssistant = (() => {
         return candidates[0];
     }
 
-    async function analyzeAndRender(sheet, samples, params) {
-        activeFilter = 'all';
-        alerts = [];
+    // Groups consecutive same-type (all-OOS or all-Warn) abnormal samples of the
+    // same parameter, within the last APP_CONFIG.ALERT_SIDEBAR_WINDOW_DAYS days,
+    // into single "episode" alerts — otherwise a parameter stuck out-of-spec for
+    // weeks (sampled up to 12x/day per PTA-Quality-Control.md §1) would produce
+    // one near-duplicate card per sample instead of one card for the whole
+    // ongoing episode. A normal/na/pending reading ends the current episode;
+    // switching status type (Warn <-> OOS) starts a new one rather than
+    // silently extending the old one.
+    //
+    // Baselines are computed from the FULL, untruncated sample history (the
+    // rolling window needs that lookback regardless of the alert window) —
+    // only which alerts get surfaced is windowed, not the statistics feeding
+    // Evaluator.evaluate.
+    //
+    // Pure (no DOM) so it's directly testable — see tests/smart-assistant.test.js.
+    async function buildEpisodeAlerts(sheet, samples, params) {
+        const cutoff = Date.now() - APP_CONFIG.ALERT_SIDEBAR_WINDOW_DAYS * 24 * 60 * 60 * 1000;
         const paramBaselines = new Map();
         params.forEach(p => {
             const specBands = SpecEvaluator.parseBands(p.specText);
             paramBaselines.set(p.name, StatEngine.computeRollingBaselines(samples, p.name, specBands));
         });
-        for (let i = samples.length - 1; i >= 0; i--) {
-            const row = samples[i];
-            for (const p of params) {
+
+        const episodes = [];
+        for (const p of params) {
+            const baselines = paramBaselines.get(p.name);
+            let open = null;
+            for (let i = 0; i < samples.length; i++) {
+                const row = samples[i];
+                if (row.timestamp < cutoff) continue;
                 const valObj = row.values[p.name];
-                const evalResult = Evaluator.evaluate(p, valObj, paramBaselines.get(p.name)[i]);
-                if (evalResult.status === 'oos' || evalResult.status === 'warn') {
-                    const bucket = ActionLog.deviationBucket(valObj.numeric, evalResult.specBands);
-                    const similar = await ActionLog.findSimilarActions(sheet, p.name, bucket);
-                    const smart = await getSmartAdvice(sheet, p.name, bucket, similar);
-                    alerts.push({
-                        sheet, time: row.dateTimeRaw, timestamp: row.timestamp, param: p.name, value: valObj.mainRaw,
-                        limit: evalResult.status === 'oos' ? p.specText : (evalResult.warnSource === 'stat' ? formatBand(evalResult.warnBands) + ' (สถิติ)' : p.warnText),
-                        type: evalResult.status, advice: smart ? { kind: 'text', text: formatSmartAdvice(smart) } : getAdvice(p.name), bucket,
-                        triggerValue: valObj.numeric, similarActions: similar
-                    });
+                const evalResult = Evaluator.evaluate(p, valObj, baselines[i]);
+                const abnormal = evalResult.status === 'oos' || evalResult.status === 'warn';
+                if (abnormal) {
+                    if (open && open.type === evalResult.status) {
+                        open.count++;
+                        open.lastRow = row;
+                        open.lastEval = evalResult;
+                    } else {
+                        if (open) episodes.push(open);
+                        open = { param: p, type: evalResult.status, firstRow: row, lastRow: row, lastEval: evalResult, count: 1 };
+                    }
+                } else if (open) {
+                    episodes.push(open);
+                    open = null;
                 }
             }
+            if (open) episodes.push(open);
         }
+        episodes.sort((a, b) => b.lastRow.timestamp - a.lastRow.timestamp);
+
+        const built = [];
+        for (const ep of episodes) {
+            const p = ep.param;
+            const valObj = ep.lastRow.values[p.name];
+            const evalResult = ep.lastEval;
+            const bucket = ActionLog.deviationBucket(valObj.numeric, evalResult.specBands);
+            const similar = await ActionLog.findSimilarActions(sheet, p.name, bucket);
+            const smart = await getSmartAdvice(sheet, p.name, bucket, similar);
+            const time = ep.count === 1
+                ? ep.lastRow.dateTimeRaw
+                : `${ep.lastRow.dateTimeRaw} (×${ep.count} ครั้ง ตั้งแต่ ${ep.firstRow.dateTimeRaw})`;
+            built.push({
+                sheet, time, timestamp: ep.lastRow.timestamp, param: p.name, value: valObj.mainRaw,
+                limit: evalResult.status === 'oos' ? p.specText : (evalResult.warnSource === 'stat' ? formatBand(evalResult.warnBands) + ' (สถิติ)' : p.warnText),
+                type: evalResult.status, advice: smart ? { kind: 'text', text: formatSmartAdvice(smart) } : getAdvice(p.name), bucket,
+                triggerValue: valObj.numeric, triggerTimestamp: ep.lastRow.timestamp, similarActions: similar,
+                count: ep.count, firstTimestamp: ep.firstRow.timestamp
+            });
+        }
+        return built;
+    }
+
+    async function analyzeAndRender(sheet, samples, params) {
+        activeFilter = 'all';
+        alerts = await buildEpisodeAlerts(sheet, samples, params);
         updateUI();
     }
 
@@ -250,5 +301,5 @@ export const SmartAssistant = (() => {
         else sidebar.classList.toggle('sidebar-open');
     }
 
-    return { analyzeAndRender, toggle, getAlerts: () => alerts };
+    return { analyzeAndRender, toggle, getAlerts: () => alerts, buildEpisodeAlerts };
 })();
