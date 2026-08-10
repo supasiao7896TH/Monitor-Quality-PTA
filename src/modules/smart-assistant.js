@@ -4,13 +4,16 @@ import { StatEngine } from './stat-engine.js';
 import { Evaluator } from './evaluator.js';
 import { ActionLog } from './action-log.js';
 import { ActionLogUI } from './action-log-ui.js';
+import { CorrelationMatrix } from './correlation-matrix.js';
 
 /** Alert sidebar: builds warn/OOS cards with advice + past-action history, per current sheet. */
 export const SmartAssistant = (() => {
     let alerts = [];
     let activeFilter = 'all'; // 'all' | 'warn' | 'oos'
 
-    function getAdvice(paramName) {
+    // Last-resort fallback for quality items the SOP correlation matrix doesn't
+    // cover (e.g. LIMS params outside the 12 items in PTA-Quality-Control.md §3).
+    function getGenericAdvice(paramName) {
         const name = paramName.toLowerCase();
         if (name.includes('4-cba')) return 'ตรวจสอบอุณหภูมิ Reactor หรือปริมาณ Catalyst';
         if (name.includes('p-ta') || name === 'pta') return 'ตรวจสอบอัตราส่วนการผสม หรือสภาวะปฏิกิริยา / พิจารณาปรับ Rinse Ratio';
@@ -19,6 +22,24 @@ export const SmartAssistant = (() => {
         if (name.includes('water') || name.includes('moisture')) return 'ตรวจสอบระบบอบแห้ง (Dryer) หรือ Centrifuge';
         if (name.includes('na') || name.includes('co') || name.includes('mn') || name.includes('br') || name.includes('q conc')) return 'ตรวจสอบระบบ Catalyst/Solvent Recovery';
         return 'ตรวจสอบ Process Control และประสานงานหน้างานด่วน';
+    }
+
+    const LEVEL_LABEL = { '◎': 'กระทบมาก (◎)', '○': 'กระทบปานกลาง (○)', '▷': 'กระทบน้อย (▷)' };
+
+    // SOP-grounded advice from the Factor x Item correlation matrix: which control
+    // variables are documented to move this item, ranked High -> Medium -> Low
+    // effect. Falls back to the old generic keyword advice when the item isn't
+    // covered by the matrix at all (never invents a ranking).
+    function getAdvice(paramName) {
+        const ranked = CorrelationMatrix.getRankedFactorsForItem(paramName);
+        if (ranked.length === 0) return getGenericAdvice(paramName);
+
+        const byLevel = { '◎': [], '○': [], '▷': [] };
+        ranked.forEach(r => byLevel[r.level].push(r.factor));
+        const parts = ['◎', '○', '▷']
+            .filter(level => byLevel[level].length > 0)
+            .map(level => `${LEVEL_LABEL[level]}: ${byLevel[level].join(', ')}`);
+        return `ตาม SOP ควรตรวจสอบ — ${parts.join(' | ')}`;
     }
 
     const SOP_FLAG_TEXT = {
