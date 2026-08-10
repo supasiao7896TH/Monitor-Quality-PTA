@@ -11,8 +11,19 @@ describe('CorrelationMatrix.getRankedFactorsForItem', () => {
         }
     });
 
-    it('includes the plant-confirmed Slurry density x 4-CBA = Low effect pair', () => {
-        const ranked = CorrelationMatrix.getRankedFactorsForItem('4-CBA');
+    // APS and P-TA are the two columns the plant confirmed end-to-end against the
+    // SOP directly (2026-08-10) after the first version of this matrix — built from
+    // a visual PDF read — turned out to have a column-misattribution bug. These two
+    // pairs anchor that confirmed data, not a guess.
+    it('includes the plant-confirmed Reactor pressure x APS = High effect pair', () => {
+        const ranked = CorrelationMatrix.getRankedFactorsForItem('APS');
+        const match = ranked.find(r => r.factor === 'Reactor pressure');
+        expect(match).toBeDefined();
+        expect(match.level).toBe('◎');
+    });
+
+    it('includes the plant-confirmed Slurry density x P-TA = Low effect pair', () => {
+        const ranked = CorrelationMatrix.getRankedFactorsForItem('P-TA');
         const match = ranked.find(r => r.factor === 'Slurry density');
         expect(match).toBeDefined();
         expect(match.level).toBe('▷');
