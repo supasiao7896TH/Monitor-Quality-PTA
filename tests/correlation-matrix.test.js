@@ -45,6 +45,13 @@ describe('CorrelationMatrix.getRankedFactorsForItem', () => {
         expect(correct.map(r => r.factor).sort()).toEqual(typo.map(r => r.factor).sort());
     });
 
+    it('matches the LIMS export\'s "MPS (Laser)" name to the SOP matrix\'s "APS" item', () => {
+        const mps = CorrelationMatrix.getRankedFactorsForItem('MPS (Laser)');
+        const aps = CorrelationMatrix.getRankedFactorsForItem('APS');
+        expect(mps.length).toBeGreaterThan(0);
+        expect(mps.map(r => r.factor).sort()).toEqual(aps.map(r => r.factor).sort());
+    });
+
     it('returns an empty array for an item with no entries in the matrix, never a guess', () => {
         expect(CorrelationMatrix.getRankedFactorsForItem('Some Unlisted Param')).toEqual([]);
         expect(CorrelationMatrix.getRankedFactorsForItem('')).toEqual([]);

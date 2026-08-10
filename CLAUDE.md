@@ -56,7 +56,7 @@ Other modules: `ChartManager` (Chart.js trend modal per parameter, with spec/war
 
 ### Tests
 
-`tests/*.test.js` (Vitest) cover the business logic that has previously had real bugs: `StatEngine.computeBaseline` (self-referential baseline drift), `Evaluator`/`SpecEvaluator` (OOS/warning classification across the various LIMS band text formats), and `ActionLog.checkOutcomes` (success/fail determination). When touching any of these three modules, run/extend the corresponding test file rather than only testing manually in the browser.
+`tests/*.test.js` (Vitest) cover the business logic that has previously had real bugs: `StatEngine.computeBaseline` (self-referential baseline drift), `Evaluator`/`SpecEvaluator` (OOS/warning classification across the various LIMS band text formats), `ActionLog.checkOutcomes` (success/fail determination), and `CorrelationMatrix.getRankedFactorsForItem` (ranking order, item-name normalization, and two plant-confirmed Factor×Item severity pairs that anchor the data after an earlier version — built from a visual PDF read — had a column-misattribution bug). When touching any of these modules, run/extend the corresponding test file rather than only testing manually in the browser.
 
 ## History note
 

@@ -76,12 +76,16 @@ export const CorrelationMatrix = (() => {
 
     // "4-CBA" / "4 CBA" / "4cba" all collapse to the same key; also folds the
     // source document's "Apperance" typo together with the correct spelling,
-    // since real LIMS exports may use either.
+    // since real LIMS exports may use either. "MPS" (the LIMS export's name,
+    // e.g. "MPS (Laser)") and "APS" (the SOP matrix's item name) are the same
+    // particle-size-by-laser-diffraction measurement — confirmed by the plant
+    // (2026-08-11).
     function normalize(name) {
         return String(name || '')
             .toLowerCase()
             .replace(/[\s\-_]/g, '')
-            .replace(/^apperance$/, 'appearance');
+            .replace(/^apperance$/, 'appearance')
+            .replace(/\bmps\b/, 'aps');
     }
 
     /**
