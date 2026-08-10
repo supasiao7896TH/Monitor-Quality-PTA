@@ -21,6 +21,33 @@ export const SmartAssistant = (() => {
         return 'ตรวจสอบ Process Control และประสานงานหน้างานด่วน';
     }
 
+    const SOP_FLAG_TEXT = {
+        'above-sop-range': ' ⚠️ ค่าที่ปรับเฉลี่ยจากประวัติสูงกว่าช่วง Fine/Fast tune ใน SOP มาก ควรตรวจสอบข้อมูลก่อนเชื่อ',
+        'below-sop-range': ' ⚠️ ค่าที่ปรับเฉลี่ยจากประวัติต่ำกว่าช่วง Fine/Fast tune ใน SOP มาก ควรตรวจสอบข้อมูลก่อนเชื่อ'
+    };
+
+    function formatSmartAdvice(stats) {
+        const sign = (v) => (v >= 0 ? '+' : '');
+        const flagText = SOP_FLAG_TEXT[stats.sopFlag] || '';
+        return `จากประวัติ ${stats.n} ครั้งที่สำเร็จ: ปรับ ${stats.controlVariable} เฉลี่ย ${sign(stats.avgDeltaControl)}${stats.avgDeltaControl.toFixed(3)}${stats.unit ? ' ' + stats.unit : ''} → พารามิเตอร์เปลี่ยนเฉลี่ย ${sign(stats.avgDeltaParam)}${stats.avgDeltaParam.toFixed(2)}${flagText}`;
+    }
+
+    // Among this alert's past similar actions, find the control variable with the
+    // strongest data-backed effect size (N>=3, enforced inside getEffectStats). Picks
+    // the candidate with the most data points; returns null if none qualify, so the
+    // caller falls back to the generic getAdvice() text instead of guessing.
+    async function getSmartAdvice(sheet, paramName, bucket, similarActions) {
+        const controlVars = [...new Set(similarActions.map(a => a.controlVariable).filter(Boolean))];
+        const candidates = [];
+        for (const cv of controlVars) {
+            const stats = await ActionLog.getEffectStats(sheet, paramName, bucket, cv);
+            if (stats) candidates.push({ controlVariable: cv, ...stats });
+        }
+        if (candidates.length === 0) return null;
+        candidates.sort((a, b) => b.n - a.n);
+        return candidates[0];
+    }
+
     async function analyzeAndRender(sheet, samples, params) {
         activeFilter = 'all';
         alerts = [];
@@ -37,10 +64,11 @@ export const SmartAssistant = (() => {
                 if (evalResult.status === 'oos' || evalResult.status === 'warn') {
                     const bucket = ActionLog.deviationBucket(valObj.numeric, evalResult.specBands);
                     const similar = await ActionLog.findSimilarActions(sheet, p.name, bucket);
+                    const smart = await getSmartAdvice(sheet, p.name, bucket, similar);
                     alerts.push({
                         sheet, time: row.dateTimeRaw, timestamp: row.timestamp, param: p.name, value: valObj.mainRaw,
                         limit: evalResult.status === 'oos' ? p.specText : (evalResult.warnSource === 'stat' ? formatBand(evalResult.warnBands) + ' (สถิติ)' : p.warnText),
-                        type: evalResult.status, advice: getAdvice(p.name), bucket,
+                        type: evalResult.status, advice: smart ? formatSmartAdvice(smart) : getAdvice(p.name), bucket,
                         triggerValue: valObj.numeric, similarActions: similar
                     });
                 }

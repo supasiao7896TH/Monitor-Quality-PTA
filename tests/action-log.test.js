@@ -94,3 +94,85 @@ describe('ActionLog.checkOutcomes', () => {
         expect(pendingAction.outcome).toBe('pending');
     });
 });
+
+describe('ActionLog.getEffectStats', () => {
+    beforeEach(() => {
+        STORAGE_ENGINE.getActionsBySheetParam.mockReset();
+    });
+
+    function successAction(overrides) {
+        return {
+            sheetParam: 'Sheet1::4-CBA', sheet: 'Sheet1', paramName: '4-CBA',
+            bucket: 'high-moderate', controlVariable: 'Slurry density',
+            triggerValue: 4600, resultValue: 4400,
+            fromValue: '1.085', toValue: '1.082', unit: 'g/cm3',
+            outcome: 'success',
+            ...overrides
+        };
+    }
+
+    it('returns null when fewer than 3 usable data points exist', async () => {
+        STORAGE_ENGINE.getActionsBySheetParam.mockResolvedValue([successAction(), successAction()]);
+
+        const stats = await ActionLog.getEffectStats('Sheet1', '4-CBA', 'high-moderate', 'Slurry density');
+
+        expect(stats).toBeNull();
+    });
+
+    it('ignores actions with unparseable from/to values or a different control variable/bucket', async () => {
+        STORAGE_ENGINE.getActionsBySheetParam.mockResolvedValue([
+            successAction(),
+            successAction(),
+            successAction(),
+            successAction({ fromValue: 'n/a' }), // unparseable -> excluded
+            successAction({ controlVariable: 'Reactor pressure' }), // different control var -> excluded
+            successAction({ bucket: 'low-moderate' }), // different bucket -> excluded
+            successAction({ outcome: 'pending', resultValue: null }) // not a success -> excluded
+        ]);
+
+        const stats = await ActionLog.getEffectStats('Sheet1', '4-CBA', 'high-moderate', 'Slurry density');
+
+        expect(stats.n).toBe(3);
+    });
+
+    it('computes the average parameter and control-variable deltas from matching actions', async () => {
+        STORAGE_ENGINE.getActionsBySheetParam.mockResolvedValue([
+            successAction({ triggerValue: 4600, resultValue: 4400, fromValue: '1.085', toValue: '1.082' }), // Δparam -200, Δcontrol -0.003
+            successAction({ triggerValue: 4700, resultValue: 4500, fromValue: '1.086', toValue: '1.083' }), // Δparam -200, Δcontrol -0.003
+            successAction({ triggerValue: 4650, resultValue: 4450, fromValue: '1.084', toValue: '1.081' })  // Δparam -200, Δcontrol -0.003
+        ]);
+
+        const stats = await ActionLog.getEffectStats('Sheet1', '4-CBA', 'high-moderate', 'Slurry density');
+
+        expect(stats.n).toBe(3);
+        expect(stats.avgDeltaParam).toBeCloseTo(-200, 5);
+        expect(stats.avgDeltaControl).toBeCloseTo(-0.003, 5);
+        expect(stats.unit).toBe('g/cm3');
+    });
+
+    it('flags a calculated average that is wildly outside the SOP\'s documented Fine/Fast tune step', async () => {
+        // Slurry density SOP step is 0.001 (fine) ~ 0.002-0.005 (fast) g/cm3 (app-config.js) —
+        // an average delta of 1.0 is >3x the fast-tune max, so it should be flagged, not trusted blindly.
+        STORAGE_ENGINE.getActionsBySheetParam.mockResolvedValue([
+            successAction({ fromValue: '1.085', toValue: '2.085' }),
+            successAction({ fromValue: '1.086', toValue: '2.086' }),
+            successAction({ fromValue: '1.084', toValue: '2.084' })
+        ]);
+
+        const stats = await ActionLog.getEffectStats('Sheet1', '4-CBA', 'high-moderate', 'Slurry density');
+
+        expect(stats.sopFlag).toBe('above-sop-range');
+    });
+
+    it('leaves sopFlag null for a control variable not listed in APP_CONFIG.CONTROL_VARIABLES', async () => {
+        STORAGE_ENGINE.getActionsBySheetParam.mockResolvedValue([
+            successAction({ controlVariable: 'Unknown Valve' }),
+            successAction({ controlVariable: 'Unknown Valve' }),
+            successAction({ controlVariable: 'Unknown Valve' })
+        ]);
+
+        const stats = await ActionLog.getEffectStats('Sheet1', '4-CBA', 'high-moderate', 'Unknown Valve');
+
+        expect(stats.sopFlag).toBeNull();
+    });
+});

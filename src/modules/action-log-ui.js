@@ -47,7 +47,7 @@ export const ActionLogUI = (() => {
         dl.innerHTML = '';
         APP_CONFIG.CONTROL_VARIABLES.forEach(v => {
             const opt = document.createElement('option');
-            opt.value = v;
+            opt.value = v.name;
             dl.appendChild(opt);
         });
     }

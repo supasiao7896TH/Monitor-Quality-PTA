@@ -1,5 +1,6 @@
 import { STORAGE_ENGINE } from './storage-engine.js';
 import { SpecEvaluator } from './spec-evaluator.js';
+import { APP_CONFIG } from './app-config.js';
 
 /** Deviation bucketing + recommendation lookup for logged corrective actions. */
 export const ActionLog = (() => {
@@ -34,6 +35,8 @@ export const ActionLog = (() => {
             triggerTimestamp, // reference point for outcome look-forward, independent of when the form was filled in
             outcome: 'pending',
             outcomeAt: null,
+            resultValue: null, // paramName's value at the follow-up sample that confirmed recovery (set by checkOutcomes)
+            resultTimestamp: null,
             followUpChecked: []
         };
         return STORAGE_ENGINE.addAction(record);
@@ -72,10 +75,12 @@ export const ActionLog = (() => {
             if (newlyChecked.length === 0) continue;
             action.followUpChecked.push(...newlyChecked);
 
-            const recovered = followUps.some(s => SpecEvaluator.isWithinBands(s.values[paramName].numeric, specBands));
+            const recovered = followUps.find(s => SpecEvaluator.isWithinBands(s.values[paramName].numeric, specBands));
             if (recovered) {
                 action.outcome = 'success';
                 action.outcomeAt = Date.now();
+                action.resultValue = recovered.values[paramName].numeric;
+                action.resultTimestamp = recovered.timestamp;
             } else if (action.followUpChecked.length >= 3) {
                 action.outcome = 'fail';
                 action.outcomeAt = Date.now();
@@ -84,5 +89,68 @@ export const ActionLog = (() => {
         }
     }
 
-    return { deviationBucket, logAction, findSimilarActions, checkOutcomes };
+    // Pull every number out of a free-text SOP step string (e.g. "0.002-0.005 g/cm3"),
+    // ignoring "-" / blank entries that mean "no documented step".
+    function parseSopNumbers(text) {
+        if (!text || text === '-') return [];
+        const matches = String(text).match(/-?\d+(\.\d+)?/g);
+        return matches ? matches.map(Number) : [];
+    }
+
+    // Envelope of documented adjustment sizes (Fine tune ~ Fast/Emergency tune) for a
+    // control variable, taken from APP_CONFIG.CONTROL_VARIABLES. Returns null when the
+    // SOP has no numeric step for that factor (e.g. "-", or the factor isn't listed).
+    function sopStepEnvelope(controlVariable) {
+        const factor = APP_CONFIG.CONTROL_VARIABLES.find(cv => cv.name === controlVariable);
+        if (!factor) return null;
+        const nums = [...parseSopNumbers(factor.fineTune), ...parseSopNumbers(factor.fastTune)].map(Math.abs);
+        if (nums.length === 0) return null;
+        return { min: Math.min(...nums), max: Math.max(...nums) };
+    }
+
+    // Sanity-check a calculated average adjustment against the SOP's documented step
+    // range, so getEffectStats doesn't silently present a number that's wildly outside
+    // what operators actually do in practice. Thresholds (3x / 0.2x) are a loose flag,
+    // not a hard SOP limit — the calculated stats are shown regardless.
+    function checkAgainstSop(avgDeltaControl, controlVariable) {
+        const envelope = sopStepEnvelope(controlVariable);
+        if (!envelope) return null;
+        const abs = Math.abs(avgDeltaControl);
+        if (abs > envelope.max * 3) return 'above-sop-range';
+        if (envelope.min > 0 && abs < envelope.min * 0.2) return 'below-sop-range';
+        return 'within-sop-range';
+    }
+
+    // Data-driven effect size: from past *successful* actions matching this
+    // sheet/param/bucket/controlVariable, how much did the control variable typically
+    // move, and how much did the parameter typically move in response? Returns null
+    // (never a guess) when fewer than 3 usable data points exist.
+    async function getEffectStats(sheet, paramName, bucket, controlVariable) {
+        const all = await STORAGE_ENGINE.getActionsBySheetParam(sheetParamKey(sheet, paramName));
+        const usable = all.filter(a =>
+            a.outcome === 'success' &&
+            a.bucket === bucket &&
+            a.controlVariable === controlVariable &&
+            a.resultValue !== null && a.resultValue !== undefined &&
+            Number.isFinite(parseFloat(a.fromValue)) &&
+            Number.isFinite(parseFloat(a.toValue))
+        );
+        if (usable.length < 3) return null;
+
+        const deltaParams = usable.map(a => a.resultValue - a.triggerValue);
+        const deltaControls = usable.map(a => parseFloat(a.toValue) - parseFloat(a.fromValue));
+        const avg = (arr) => arr.reduce((sum, v) => sum + v, 0) / arr.length;
+        const avgDeltaParam = avg(deltaParams);
+        const avgDeltaControl = avg(deltaControls);
+
+        return {
+            n: usable.length,
+            avgDeltaParam,
+            avgDeltaControl,
+            unit: usable[usable.length - 1].unit || '',
+            sopFlag: checkAgainstSop(avgDeltaControl, controlVariable)
+        };
+    }
+
+    return { deviationBucket, logAction, findSimilarActions, checkOutcomes, getEffectStats };
 })();
