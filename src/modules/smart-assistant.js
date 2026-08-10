@@ -24,22 +24,31 @@ export const SmartAssistant = (() => {
         return 'ตรวจสอบ Process Control และประสานงานหน้างานด่วน';
     }
 
-    const LEVEL_LABEL = { '◎': 'กระทบมาก (◎)', '○': 'กระทบปานกลาง (○)', '▷': 'กระทบน้อย (▷)' };
+    // Severity styling for the stacked SOP-advice lines, most-impactful first.
+    const LEVEL_STYLE = {
+        '◎': { label: 'กระทบมาก', border: 'border-red-400 dark:border-red-500', text: 'text-red-700 dark:text-red-300 font-semibold' },
+        '○': { label: 'กระทบปานกลาง', border: 'border-amber-400 dark:border-amber-500', text: 'text-amber-700 dark:text-amber-300 font-medium' },
+        '▷': { label: 'กระทบน้อย', border: 'border-slate-300 dark:border-slate-600', text: 'text-slate-500 dark:text-slate-400' }
+    };
 
+    // alert.advice is always one of:
+    //   { kind: 'text', text }                — a single-line message (generic fallback or data-driven "smart" advice)
+    //   { kind: 'sop', intro, lines: [{level, factors}] } — SOP-grounded, one line per severity level present, ◎ -> ○ -> ▷
+    //
     // SOP-grounded advice from the Factor x Item correlation matrix: which control
     // variables are documented to move this item, ranked High -> Medium -> Low
     // effect. Falls back to the old generic keyword advice when the item isn't
     // covered by the matrix at all (never invents a ranking).
     function getAdvice(paramName) {
         const ranked = CorrelationMatrix.getRankedFactorsForItem(paramName);
-        if (ranked.length === 0) return getGenericAdvice(paramName);
+        if (ranked.length === 0) return { kind: 'text', text: getGenericAdvice(paramName) };
 
         const byLevel = { '◎': [], '○': [], '▷': [] };
         ranked.forEach(r => byLevel[r.level].push(r.factor));
-        const parts = ['◎', '○', '▷']
+        const lines = ['◎', '○', '▷']
             .filter(level => byLevel[level].length > 0)
-            .map(level => `${LEVEL_LABEL[level]}: ${byLevel[level].join(', ')}`);
-        return `ตาม SOP ควรตรวจสอบ — ${parts.join(' | ')}`;
+            .map(level => ({ level, factors: byLevel[level] }));
+        return { kind: 'sop', intro: 'ตาม SOP ควรตรวจสอบ', lines };
     }
 
     const SOP_FLAG_TEXT = {
@@ -89,7 +98,7 @@ export const SmartAssistant = (() => {
                     alerts.push({
                         sheet, time: row.dateTimeRaw, timestamp: row.timestamp, param: p.name, value: valObj.mainRaw,
                         limit: evalResult.status === 'oos' ? p.specText : (evalResult.warnSource === 'stat' ? formatBand(evalResult.warnBands) + ' (สถิติ)' : p.warnText),
-                        type: evalResult.status, advice: smart ? formatSmartAdvice(smart) : getAdvice(p.name), bucket,
+                        type: evalResult.status, advice: smart ? { kind: 'text', text: formatSmartAdvice(smart) } : getAdvice(p.name), bucket,
                         triggerValue: valObj.numeric, similarActions: similar
                     });
                 }
@@ -101,6 +110,43 @@ export const SmartAssistant = (() => {
     function formatBand(bands) {
         if (!bands) return '-';
         return bands.map(b => `${Number.isFinite(b.min) ? b.min.toFixed(2) : '-∞'} ~ ${Number.isFinite(b.max) ? b.max.toFixed(2) : '∞'}`).join(' หรือ ');
+    }
+
+    // Renders alert.advice ({kind:'text'} or {kind:'sop'}) as the wrench-icon
+    // block. SOP advice stacks one line per severity level (◎ -> ○ -> ▷, most
+    // impactful first) with a colored left border instead of one run-on line,
+    // since a plain "|"-joined sentence was hard to scan in the narrow card.
+    function renderAdvice(advice) {
+        const wrap = document.createElement('div');
+        wrap.className = 'text-xs text-indigo-700 dark:text-indigo-300 font-medium flex items-start gap-1.5';
+        wrap.innerHTML = `<i data-lucide="wrench" class="w-3.5 h-3.5 mt-0.5 flex-shrink-0"></i>`;
+
+        const content = document.createElement('div');
+        content.className = 'flex-1 min-w-0';
+
+        if (advice.kind === 'sop') {
+            const intro = document.createElement('p');
+            intro.textContent = `${advice.intro}:`;
+            content.appendChild(intro);
+
+            const list = document.createElement('div');
+            list.className = 'mt-1 flex flex-col gap-1';
+            advice.lines.forEach(line => {
+                const style = LEVEL_STYLE[line.level];
+                const row = document.createElement('div');
+                row.className = `border-l-2 pl-2 ${style.border} ${style.text}`;
+                row.textContent = `${line.level} ${style.label}: ${line.factors.join(', ')}`;
+                list.appendChild(row);
+            });
+            content.appendChild(list);
+        } else {
+            const span = document.createElement('span');
+            span.textContent = advice.text;
+            content.appendChild(span);
+        }
+
+        wrap.appendChild(content);
+        return wrap;
     }
 
     function emptyStateMessage() {
@@ -166,13 +212,7 @@ export const SmartAssistant = (() => {
 
             const adviceBlock = document.createElement('div');
             adviceBlock.className = 'pt-2 border-t border-slate-200/50 dark:border-slate-700/50 mt-2';
-            const adviceP = document.createElement('p');
-            adviceP.className = 'text-xs text-indigo-700 dark:text-indigo-300 font-medium flex items-start gap-1.5';
-            adviceP.innerHTML = `<i data-lucide="wrench" class="w-3.5 h-3.5 mt-0.5 flex-shrink-0"></i>`;
-            const adviceSpan = document.createElement('span');
-            adviceSpan.textContent = alert.advice;
-            adviceP.appendChild(adviceSpan);
-            adviceBlock.appendChild(adviceP);
+            adviceBlock.appendChild(renderAdvice(alert.advice));
 
             if (alert.similarActions && alert.similarActions.length > 0) {
                 const histBlock = document.createElement('div');
